@@ -208,6 +208,7 @@ ztracing.workspace = true
 tracing.workspace = true
 toolchain_selector.workspace = true
 ui.workspace = true
+ui_input.workspace = true
 ui_prompt.workspace = true
 url.workspace = true
 urlencoding.workspace = true

@@ -1,8 +1,10 @@
 mod app_menus;
+pub mod containers;
 pub mod edit_prediction_registry;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;
 mod migrate;
+mod new_container_modal;
 mod open_listener;
 mod open_url_modal;
 mod quick_action_bar;
@@ -143,6 +145,18 @@ actions!(
     [
         /// Opens a prompt to enter a URL to open.
         OpenUrlPrompt,
+    ]
+);
+
+actions!(
+    containers,
+    [
+        /// Creates a new container.
+        NewContainer,
+        /// Manages containers (edit/delete).
+        ManageContainers,
+        /// Refreshes the menu after container operations.
+        RefreshMenu,
     ]
 );
 
@@ -1276,6 +1290,32 @@ fn register_actions(
             }
         });
     }
+
+    workspace.register_action(|workspace, _: &NewContainer, window, cx| {
+        workspace.toggle_modal(window, cx, |window, cx| {
+            new_container_modal::NewContainerModal::new(window, cx)
+        });
+    });
+
+    workspace.register_action(|workspace, _: &ManageContainers, window, cx| {
+        workspace.toggle_modal(window, cx, |window, cx| {
+            new_container_modal::ManageContainersModal::new(window, cx)
+        });
+    });
+
+    cx.on_action(|_: &RefreshMenu, cx| {
+        let menus = app_menus(cx);
+        cx.set_menus(menus);
+    });
+
+    workspace.register_action(|_, action: &zed_actions::OpenContainer, _, _cx| {
+        let containers = containers::list_containers();
+        if let Some(container) = containers.iter().find(|c| c.name == action.name) {
+            if let Err(e) = containers::launch_container(container) {
+                log::error!("Failed to launch container: {}", e);
+            }
+        }
+    });
 
     workspace.register_action(sidebar::dump_workspace_info);
 }

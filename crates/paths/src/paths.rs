@@ -23,6 +23,15 @@ static CUSTOM_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// On Windows, this is `%LOCALAPPDATA%\Zed`.
 static CURRENT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+/// A custom config directory override, set only by `set_custom_config_dir`.
+static CUSTOM_CONFIG_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// A custom logs directory override, set only by `set_custom_logs_dir`.
+static CUSTOM_LOGS_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// A custom cache directory override, set only by `set_custom_cache_dir`.
+static CUSTOM_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
 /// The resolved config directory, combining custom override or platform defaults.
 /// This is set once and cached for subsequent calls.
 /// On macOS, this is `~/.config/zed`.
@@ -83,10 +92,60 @@ pub fn set_custom_data_dir(dir: &str) -> &'static PathBuf {
     })
 }
 
+/// Sets a custom directory for configuration, overriding the default.
+/// This function must be called before `config_dir()` is first accessed.
+pub fn set_custom_config_dir(dir: &str) -> &'static PathBuf {
+    if CONFIG_DIR.get().is_some() {
+        panic!("set_custom_config_dir called after config_dir was initialized");
+    }
+    CUSTOM_CONFIG_DIR.get_or_init(|| {
+        let path = PathBuf::from(dir);
+        std::fs::create_dir_all(&path).expect("failed to create custom config directory");
+        let canonicalized = path
+            .canonicalize()
+            .expect("failed to canonicalize custom config directory's path to an absolute path");
+        SanitizedPath::new(&canonicalized).as_path().to_path_buf()
+    })
+}
+
+/// Sets a custom directory for logs, overriding the default.
+/// This function must be called before `logs_dir()` is first accessed.
+pub fn set_custom_logs_dir(dir: &str) -> &'static PathBuf {
+    if CUSTOM_LOGS_DIR.get().is_some() {
+        panic!("set_custom_logs_dir called twice");
+    }
+    CUSTOM_LOGS_DIR.get_or_init(|| {
+        let path = PathBuf::from(dir);
+        std::fs::create_dir_all(&path).expect("failed to create custom logs directory");
+        let canonicalized = path
+            .canonicalize()
+            .expect("failed to canonicalize custom logs directory's path to an absolute path");
+        SanitizedPath::new(&canonicalized).as_path().to_path_buf()
+    })
+}
+
+/// Sets a custom directory for cache, overriding the default.
+/// This function must be called before `temp_dir()` is first accessed.
+pub fn set_custom_cache_dir(dir: &str) -> &'static PathBuf {
+    if CUSTOM_CACHE_DIR.get().is_some() {
+        panic!("set_custom_cache_dir called twice");
+    }
+    CUSTOM_CACHE_DIR.get_or_init(|| {
+        let path = PathBuf::from(dir);
+        std::fs::create_dir_all(&path).expect("failed to create custom cache directory");
+        let canonicalized = path
+            .canonicalize()
+            .expect("failed to canonicalize custom cache directory's path to an absolute path");
+        SanitizedPath::new(&canonicalized).as_path().to_path_buf()
+    })
+}
+
 /// Returns the path to the configuration directory used by Zed.
 pub fn config_dir() -> &'static PathBuf {
     CONFIG_DIR.get_or_init(|| {
-        if let Some(custom_dir) = CUSTOM_DATA_DIR.get() {
+        if let Some(custom_dir) = CUSTOM_CONFIG_DIR.get() {
+            custom_dir.clone()
+        } else if let Some(custom_dir) = CUSTOM_DATA_DIR.get() {
             custom_dir.join("config")
         } else if cfg!(target_os = "windows") {
             dirs::config_dir()
@@ -156,6 +215,10 @@ pub fn state_dir() -> &'static PathBuf {
 pub fn temp_dir() -> &'static PathBuf {
     static TEMP_DIR: OnceLock<PathBuf> = OnceLock::new();
     TEMP_DIR.get_or_init(|| {
+        if let Some(custom_dir) = CUSTOM_CACHE_DIR.get() {
+            return custom_dir.clone();
+        }
+
         if cfg!(target_os = "macos") {
             return dirs::cache_dir()
                 .expect("failed to determine cachesDirectory directory")
@@ -191,7 +254,9 @@ pub fn hang_traces_dir() -> &'static PathBuf {
 pub fn logs_dir() -> &'static PathBuf {
     static LOGS_DIR: OnceLock<PathBuf> = OnceLock::new();
     LOGS_DIR.get_or_init(|| {
-        if cfg!(target_os = "macos") {
+        if let Some(custom_dir) = CUSTOM_LOGS_DIR.get() {
+            custom_dir.clone()
+        } else if cfg!(target_os = "macos") {
             home_dir().join("Library/Logs/Zed")
         } else {
             data_dir().join("logs")

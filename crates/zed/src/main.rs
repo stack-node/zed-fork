@@ -63,7 +63,7 @@ use workspace::{
 };
 use zed::{
     OpenListener, OpenRequest, RawOpenRequest, app_menus, build_window_options,
-    derive_paths_with_position, edit_prediction_registry, handle_cli_connection,
+    containers, derive_paths_with_position, edit_prediction_registry, handle_cli_connection,
     handle_keymap_file_changes, initialize_workspace, open_paths_with_positions,
 };
 
@@ -254,8 +254,13 @@ fn main() {
         return;
     }
 
-    // Set custom data directory.
-    if let Some(dir) = &args.user_data_dir {
+    // Set custom data directory from container config if specified
+    if let Ok(config_path) = std::env::var("ZED_CONTAINER_CONFIG") {
+        if let Err(e) = zed::containers::apply_container_paths(&config_path) {
+            eprintln!("Warning: Failed to apply container paths: {}", e);
+        }
+    } else if let Some(dir) = &args.user_data_dir {
+        // Set custom data directory from CLI flag if no container is active
         paths::set_custom_data_dir(dir);
     }
 

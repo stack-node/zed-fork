@@ -62,6 +62,21 @@ const MAX_PROJECT_NAME_LENGTH: usize = 40;
 const MAX_BRANCH_NAME_LENGTH: usize = 40;
 const MAX_SHORT_SHA_LENGTH: usize = 8;
 
+/// Gets the active container name from the environment variable.
+/// Returns None if no container is active (using default Zed).
+fn get_active_container_name() -> Option<String> {
+    if let Ok(config_path) = std::env::var("ZED_CONTAINER_CONFIG") {
+        // Config path is like ~/.config/zed/Containers/Default/config.json
+        // We want to extract "Default"
+        if let Some(path) = std::path::Path::new(&config_path).parent() {
+            if let Some(container_name) = path.file_name() {
+                return container_name.to_str().map(|s| s.to_string());
+            }
+        }
+    }
+    None
+}
+
 actions!(
     collab,
     [
@@ -244,6 +259,7 @@ impl Render for TitleBar {
                                 .when(title_bar_settings.show_project_items, |title_bar| {
                                     title_bar
                                         .children(self.render_project_host(cx))
+                                        .children(self.render_container_indicator(cx))
                                         .child(self.render_project_name(project_name, window, cx))
                                 })
                                 .when_some(
@@ -1378,5 +1394,19 @@ impl TitleBar {
                 .into()
             })
             .anchor(Anchor::TopRight)
+    }
+
+    fn render_container_indicator(&self, _cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        get_active_container_name().map(|container_name| {
+            h_flex()
+                .gap_1()
+                .px_2()
+                .py_1()
+                .child(
+                    Label::new(container_name)
+                        .size(LabelSize::Small)
+                        .color(Color::Muted),
+                )
+        })
     }
 }

@@ -28,6 +28,14 @@ pub struct OpenZedUrl {
     pub url: String,
 }
 
+/// Opens a container in a new Zed window.
+#[derive(Clone, PartialEq, Deserialize, JsonSchema, Action)]
+#[action(namespace = containers)]
+#[serde(deny_unknown_fields)]
+pub struct OpenContainer {
+    pub name: String,
+}
+
 /// Opens the keymap to either add a keybinding or change an existing one
 #[derive(PartialEq, Clone, Default, Action, JsonSchema, Serialize, Deserialize)]
 #[action(namespace = zed, no_json, no_register)]
