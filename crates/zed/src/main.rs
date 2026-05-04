@@ -62,8 +62,8 @@ use workspace::{
     WorkspaceSettings, WorkspaceStore, notifications::NotificationId, restore_multiworkspace,
 };
 use zed::{
-    OpenListener, OpenRequest, RawOpenRequest, app_menus, build_window_options,
-    containers, derive_paths_with_position, edit_prediction_registry, handle_cli_connection,
+    OpenListener, OpenRequest, RawOpenRequest, app_menus, build_window_options, containers,
+    derive_paths_with_position, edit_prediction_registry, handle_cli_connection,
     handle_keymap_file_changes, initialize_workspace, open_paths_with_positions,
 };
 

@@ -1,4 +1,5 @@
 mod persistence;
+pub mod services_panel;
 pub mod terminal_element;
 pub mod terminal_panel;
 mod terminal_path_like_target;
@@ -46,7 +47,8 @@ use terminal_panel::TerminalPanel;
 use terminal_path_like_target::{hover_path_like_target, open_path_like_target};
 use terminal_scrollbar::TerminalScrollHandle;
 use ui::{
-    ContextMenu, Divider, ScrollAxes, Scrollbars, Tooltip, WithScrollbar,
+    ContextMenu, ContextMenuItem, Divider, IconPosition, ScrollAxes, Scrollbars, Tooltip,
+    WithScrollbar,
     prelude::*,
     scrollbars::{self, ScrollbarVisibility},
 };
@@ -69,6 +71,19 @@ struct ImeState {
 }
 
 const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
+
+const CUSTOM_TERMINAL_ICON_OPTIONS: &[(IconName, &str)] = &[
+    (IconName::Terminal, "Terminal"),
+    (IconName::TerminalAlt, "Terminal Alt"),
+    (IconName::ToolTerminal, "Tool Terminal"),
+    (IconName::Server, "Server"),
+    (IconName::DatabaseZap, "Database"),
+    (IconName::Code, "Code"),
+    (IconName::Box, "Box"),
+    (IconName::BoltFilled, "Bolt"),
+    (IconName::PlayFilled, "Play"),
+    (IconName::GitBranch, "Git Branch"),
+];
 
 /// Event to transmit the scroll from the element to the view
 #[derive(Clone, Debug, PartialEq)]
@@ -97,8 +112,21 @@ actions!(
 #[action(namespace = terminal)]
 pub struct RenameTerminal;
 
+/// Moves a terminal tab to the Services Panel as a background service.
+#[derive(Clone, Debug, Default, Deserialize, JsonSchema, PartialEq, Action)]
+#[action(namespace = terminal)]
+pub struct ConvertToService;
+
+/// Sets the custom terminal tab icon.
+#[derive(Clone, Debug, Default, Deserialize, JsonSchema, PartialEq, Action)]
+#[action(namespace = terminal)]
+pub struct SetTerminalIcon {
+    pub icon: Option<String>,
+}
+
 pub fn init(cx: &mut App) {
     terminal_panel::init(cx);
+    services_panel::init(cx);
 
     register_serializable_item::<TerminalView>(cx);
 
@@ -106,6 +134,40 @@ pub fn init(cx: &mut App) {
         workspace.register_action(TerminalView::deploy);
     })
     .detach();
+}
+
+pub(crate) fn build_terminal_icon_context_menu(
+    menu: ContextMenu,
+    current_icon: Option<IconName>,
+    on_select: impl Fn(Option<IconName>, &mut Window, &mut App) + 'static,
+) -> ContextMenu {
+    let on_select = Rc::new(on_select);
+    let mut menu = menu.toggleable_entry(
+        "Default",
+        current_icon.is_none(),
+        IconPosition::Start,
+        None,
+        {
+            let on_select = on_select.clone();
+            move |window, cx| on_select(None, window, cx)
+        },
+    );
+
+    for (icon, label) in CUSTOM_TERMINAL_ICON_OPTIONS {
+        menu = menu.toggleable_entry(
+            *label,
+            current_icon == Some(*icon),
+            IconPosition::Start,
+            None,
+            {
+                let on_select = on_select.clone();
+                let icon = *icon;
+                move |window, cx| on_select(Some(icon), window, cx)
+            },
+        );
+    }
+
+    menu
 }
 
 pub struct BlockProperties {
@@ -134,6 +196,7 @@ pub struct TerminalView {
     blinking_terminal_enabled: bool,
     needs_serialize: bool,
     custom_title: Option<String>,
+    custom_icon: Option<IconName>,
     hover: Option<HoverTarget>,
     hover_tooltip_update: Task<()>,
     workspace_id: Option<WorkspaceId>,
@@ -287,6 +350,7 @@ impl TerminalView {
             scroll_handle,
             needs_serialize: false,
             custom_title: None,
+            custom_icon: None,
             ime_state: None,
             self_handle: cx.entity().downgrade(),
             rename_editor: None,
@@ -390,6 +454,10 @@ impl TerminalView {
         self.custom_title.as_deref()
     }
 
+    pub fn custom_icon(&self) -> Option<IconName> {
+        self.custom_icon
+    }
+
     pub fn set_custom_title(&mut self, label: Option<String>, cx: &mut Context<Self>) {
         let label = label.filter(|l| !l.trim().is_empty());
         if self.custom_title != label {
@@ -397,6 +465,53 @@ impl TerminalView {
             self.needs_serialize = true;
             cx.emit(ItemEvent::UpdateTab);
             cx.notify();
+        }
+    }
+
+    pub fn set_custom_icon(&mut self, icon: Option<IconName>, cx: &mut Context<Self>) {
+        if self.custom_icon != icon {
+            self.custom_icon = icon;
+            self.needs_serialize = true;
+            cx.emit(ItemEvent::UpdateTab);
+            cx.notify();
+        }
+    }
+
+    fn icon_name_from_action(icon: Option<&str>) -> Option<IconName> {
+        icon.and_then(|icon| icon.parse::<IconName>().ok())
+    }
+
+    fn displayed_icon_name(&self, cx: &App) -> IconName {
+        match self.terminal.read(cx).task() {
+            Some(terminal_task) => match &terminal_task.status {
+                TaskStatus::Running => IconName::PlayFilled,
+                TaskStatus::Unknown => IconName::Warning,
+                TaskStatus::Completed { success } => {
+                    if *success {
+                        IconName::Check
+                    } else {
+                        IconName::XCircle
+                    }
+                }
+            },
+            None => self.custom_icon.unwrap_or(IconName::Terminal),
+        }
+    }
+
+    fn displayed_icon_color(&self, cx: &App) -> Color {
+        match self.terminal.read(cx).task() {
+            Some(terminal_task) => match &terminal_task.status {
+                TaskStatus::Running => Color::Disabled,
+                TaskStatus::Unknown => Color::Warning,
+                TaskStatus::Completed { success } => {
+                    if *success {
+                        Color::Success
+                    } else {
+                        Color::Error
+                    }
+                }
+            },
+            None => Color::Muted,
         }
     }
 
@@ -479,6 +594,52 @@ impl TerminalView {
             editor.focus_handle(cx).focus(window, cx);
         });
         cx.notify();
+    }
+
+    pub fn set_terminal_icon(
+        &mut self,
+        action: &SetTerminalIcon,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.terminal.read(cx).task().is_some() {
+            return;
+        }
+
+        self.set_custom_icon(Self::icon_name_from_action(action.icon.as_deref()), cx);
+    }
+
+    pub fn convert_to_service(
+        &mut self,
+        _: &ConvertToService,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.terminal.read(cx).task().is_some() {
+            return;
+        }
+
+        let terminal = self.terminal.clone();
+        let name = self
+            .custom_title
+            .clone()
+            .unwrap_or_else(|| self.terminal.read(cx).title(true));
+        let custom_icon = self.custom_icon;
+
+        let added = self.workspace.update(cx, |workspace, cx| {
+            if let Some(services_panel) = workspace.panel::<services_panel::ServicesPanel>(cx) {
+                services_panel.update(cx, |panel, cx| {
+                    panel.add_service(name, custom_icon, terminal, cx);
+                });
+                true
+            } else {
+                false
+            }
+        });
+
+        if added.unwrap_or(false) {
+            cx.emit(ItemEvent::CloseItem);
+        }
     }
 
     pub fn clear_bell(&mut self, cx: &mut Context<TerminalView>) {
@@ -1238,6 +1399,8 @@ impl Render for TerminalView {
             .on_action(cx.listener(TerminalView::select_all))
             .on_action(cx.listener(TerminalView::rerun_task))
             .on_action(cx.listener(TerminalView::rename_terminal))
+            .on_action(cx.listener(TerminalView::set_terminal_icon))
+            .on_action(cx.listener(TerminalView::convert_to_service))
             .on_key_down(cx.listener(Self::key_down))
             .on_mouse_down(
                 MouseButton::Right,
@@ -1338,30 +1501,9 @@ impl Item for TerminalView {
             .cloned()
             .unwrap_or_else(|| terminal.title(true));
 
-        let (icon, icon_color, rerun_button) = match terminal.task() {
-            Some(terminal_task) => match &terminal_task.status {
-                TaskStatus::Running => (
-                    IconName::PlayFilled,
-                    Color::Disabled,
-                    TerminalView::rerun_button(terminal_task),
-                ),
-                TaskStatus::Unknown => (
-                    IconName::Warning,
-                    Color::Warning,
-                    TerminalView::rerun_button(terminal_task),
-                ),
-                TaskStatus::Completed { success } => {
-                    let rerun_button = TerminalView::rerun_button(terminal_task);
-
-                    if *success {
-                        (IconName::Check, Color::Success, rerun_button)
-                    } else {
-                        (IconName::XCircle, Color::Error, rerun_button)
-                    }
-                }
-            },
-            None => (IconName::Terminal, Color::Muted, None),
-        };
+        let icon = self.displayed_icon_name(cx);
+        let icon_color = self.displayed_icon_color(cx);
+        let rerun_button = terminal.task().and_then(TerminalView::rerun_button);
 
         let self_handle = self.self_handle.clone();
         h_flex()
@@ -1430,6 +1572,10 @@ impl Item for TerminalView {
                     }),
             )
             .into_any()
+    }
+
+    fn tab_icon(&self, _window: &Window, cx: &App) -> Option<Icon> {
+        Some(Icon::new(self.displayed_icon_name(cx)).color(self.displayed_icon_color(cx)))
     }
 
     fn tab_content_text(&self, detail: usize, cx: &App) -> SharedString {
@@ -1599,10 +1745,47 @@ impl Item for TerminalView {
     ) -> Vec<(SharedString, Box<dyn gpui::Action>)> {
         let terminal = self.terminal.read(cx);
         if terminal.task().is_none() {
-            vec![("Rename".into(), Box::new(RenameTerminal))]
+            vec![
+                ("Rename".into(), Box::new(RenameTerminal)),
+                ("Convert To Service".into(), Box::new(ConvertToService)),
+            ]
         } else {
             Vec::new()
         }
+    }
+
+    fn tab_extra_context_menu_items(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Vec<ContextMenuItem> {
+        if self.terminal.read(_cx).task().is_some() {
+            return Vec::new();
+        }
+
+        let self_handle = self.self_handle.clone();
+        let current_icon = self.custom_icon;
+        vec![ContextMenuItem::Submenu {
+            label: "Icon".into(),
+            icon: current_icon.or(Some(IconName::Terminal)),
+            icon_color: Some(Color::Muted),
+            builder: Rc::new(move |menu, _window, _cx| {
+                build_terminal_icon_context_menu(menu, current_icon, {
+                    let self_handle = self_handle.clone();
+                    move |icon, window, cx| {
+                        let action = SetTerminalIcon {
+                            icon: icon.map(|icon| {
+                                let icon_name: &'static str = icon.into();
+                                icon_name.to_string()
+                            }),
+                        };
+                        self_handle
+                            .update(cx, |this, cx| this.set_terminal_icon(&action, window, cx))
+                            .ok();
+                    }
+                })
+            }),
+        }]
     }
 
     fn buffer_kind(&self, _: &App) -> workspace::item::ItemBufferKind {
@@ -1748,6 +1931,10 @@ impl SerializableItem for TerminalView {
         let workspace_id = self.workspace_id?;
         let cwd = terminal.working_directory();
         let custom_title = self.custom_title.clone();
+        let custom_icon = self.custom_icon.map(|icon| {
+            let icon_name: &'static str = icon.into();
+            icon_name.to_string()
+        });
         self.needs_serialize = false;
 
         let db = TerminalDb::global(cx);
@@ -1757,6 +1944,8 @@ impl SerializableItem for TerminalView {
                     .await?;
             }
             db.save_custom_title(item_id, workspace_id, custom_title)
+                .await?;
+            db.save_custom_icon(item_id, workspace_id, custom_icon)
                 .await?;
             Ok(())
         }))
@@ -1775,7 +1964,7 @@ impl SerializableItem for TerminalView {
         cx: &mut App,
     ) -> Task<anyhow::Result<Entity<Self>>> {
         window.spawn(cx, async move |cx| {
-            let (cwd, custom_title) = cx
+            let (cwd, custom_title, custom_icon) = cx
                 .update(|_window, cx| {
                     let db = TerminalDb::global(cx);
                     let from_db = db
@@ -1797,10 +1986,15 @@ impl SerializableItem for TerminalView {
                         .log_err()
                         .flatten()
                         .filter(|title| !title.trim().is_empty());
-                    (cwd, custom_title)
+                    let custom_icon = db
+                        .get_custom_icon(item_id, workspace_id)
+                        .log_err()
+                        .flatten()
+                        .and_then(|icon| icon.parse::<IconName>().ok());
+                    (cwd, custom_title, custom_icon)
                 })
                 .ok()
-                .unwrap_or((None, None));
+                .unwrap_or((None, None, None));
 
             let terminal = project
                 .update(cx, |project, cx| project.create_terminal_shell(cwd, cx))
@@ -1818,6 +2012,7 @@ impl SerializableItem for TerminalView {
                     if custom_title.is_some() {
                         view.custom_title = custom_title;
                     }
+                    view.custom_icon = custom_icon;
                     view
                 })
             })
@@ -2725,6 +2920,70 @@ mod tests {
         terminal_view.update(cx, |view, cx| {
             view.needs_serialize = false;
             view.set_custom_title(Some("new_label".to_string()), cx);
+            assert!(view.needs_serialize);
+        });
+    }
+
+    #[gpui::test]
+    async fn test_set_custom_icon(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
+
+        let (project, workspace) = init_test(cx).await;
+
+        let terminal = project
+            .update(cx, |project, cx| project.create_terminal_shell(None, cx))
+            .await
+            .unwrap();
+
+        let terminal_view = cx
+            .add_window(|window, cx| {
+                TerminalView::new(
+                    terminal,
+                    workspace.downgrade(),
+                    None,
+                    project.downgrade(),
+                    window,
+                    cx,
+                )
+            })
+            .root(cx)
+            .unwrap();
+
+        terminal_view.update(cx, |view, cx| {
+            view.set_custom_icon(Some(IconName::Server), cx);
+            assert_eq!(view.custom_icon(), Some(IconName::Server));
+            assert_eq!(view.displayed_icon_name(cx), IconName::Server);
+        });
+    }
+
+    #[gpui::test]
+    async fn test_custom_icon_marks_needs_serialize(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
+
+        let (project, workspace) = init_test(cx).await;
+
+        let terminal = project
+            .update(cx, |project, cx| project.create_terminal_shell(None, cx))
+            .await
+            .unwrap();
+
+        let terminal_view = cx
+            .add_window(|window, cx| {
+                TerminalView::new(
+                    terminal,
+                    workspace.downgrade(),
+                    None,
+                    project.downgrade(),
+                    window,
+                    cx,
+                )
+            })
+            .root(cx)
+            .unwrap();
+
+        terminal_view.update(cx, |view, cx| {
+            view.needs_serialize = false;
+            view.set_custom_icon(Some(IconName::DatabaseZap), cx);
             assert!(view.needs_serialize);
         });
     }

@@ -413,6 +413,9 @@ impl Domain for TerminalDb {
         sql! (
             ALTER TABLE terminals ADD COLUMN custom_title TEXT;
         ),
+        sql! (
+            ALTER TABLE terminals ADD COLUMN custom_icon TEXT;
+        ),
     ];
 }
 
@@ -500,6 +503,40 @@ impl TerminalDb {
     query! {
         pub fn get_custom_title(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<String>> {
             SELECT custom_title
+            FROM terminals
+            WHERE item_id = ? AND workspace_id = ?
+        }
+    }
+
+    pub async fn save_custom_icon(
+        &self,
+        item_id: ItemId,
+        workspace_id: WorkspaceId,
+        custom_icon: Option<String>,
+    ) -> Result<()> {
+        log::debug!(
+            "Saving custom icon {:?} for item {} in workspace {:?}",
+            custom_icon,
+            item_id,
+            workspace_id
+        );
+        self.write(move |conn| {
+            let query = "INSERT INTO terminals (item_id, workspace_id, custom_icon)
+                VALUES (?1, ?2, ?3)
+                ON CONFLICT (workspace_id, item_id) DO UPDATE SET
+                    custom_icon = excluded.custom_icon";
+            let mut statement = Statement::prepare(conn, query)?;
+            let mut next_index = statement.bind(&item_id, 1)?;
+            next_index = statement.bind(&workspace_id, next_index)?;
+            statement.bind(&custom_icon, next_index)?;
+            statement.exec()
+        })
+        .await
+    }
+
+    query! {
+        pub fn get_custom_icon(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<String>> {
+            SELECT custom_icon
             FROM terminals
             WHERE item_id = ? AND workspace_id = ?
         }

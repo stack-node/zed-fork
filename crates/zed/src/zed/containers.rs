@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use paths::home_dir;
 use serde::{Deserialize, Serialize};
 use std::fs;

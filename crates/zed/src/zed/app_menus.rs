@@ -296,15 +296,15 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
             let mut items: Vec<MenuItem> = super::containers::list_containers()
                 .into_iter()
                 .map(|c| {
-                    MenuItem::action(
-                        c.name.clone(),
-                        zed_actions::OpenContainer { name: c.name },
-                    )
+                    MenuItem::action(c.name.clone(), zed_actions::OpenContainer { name: c.name })
                 })
                 .collect();
             items.push(MenuItem::separator());
             items.push(MenuItem::action("Create Container...", super::NewContainer));
-            items.push(MenuItem::action("Manage Containers...", super::ManageContainers));
+            items.push(MenuItem::action(
+                "Manage Containers...",
+                super::ManageContainers,
+            ));
             Menu {
                 name: "Containers".into(),
                 disabled: false,

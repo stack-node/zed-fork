@@ -1398,15 +1398,11 @@ impl TitleBar {
 
     fn render_container_indicator(&self, _cx: &mut Context<Self>) -> Option<impl IntoElement> {
         get_active_container_name().map(|container_name| {
-            h_flex()
-                .gap_1()
-                .px_2()
-                .py_1()
-                .child(
-                    Label::new(container_name)
-                        .size(LabelSize::Small)
-                        .color(Color::Muted),
-                )
+            h_flex().gap_1().px_2().py_1().child(
+                Label::new(container_name)
+                    .size(LabelSize::Small)
+                    .color(Color::Muted),
+            )
         })
     }
 }

@@ -71,7 +71,11 @@ impl NewContainerModal {
 }
 
 impl gpui::Render for NewContainerModal {
-    fn render(&mut self, _window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
         let mut section_children = vec![self.name_input.clone().into_any_element()];
         section_children.push(self.description_input.clone().into_any_element());
 
@@ -87,29 +91,25 @@ impl gpui::Render for NewContainerModal {
             .child(
                 Modal::new("new-container-modal", None::<ScrollHandle>)
                     .header(ModalHeader::new().headline("Create Container"))
-                    .child(
-                        Section::new()
-                            .children(section_children)
-                    )
+                    .child(Section::new().children(section_children))
                     .footer(
                         ModalFooter::new().end_slot(
                             h_flex()
                                 .gap_2()
-                                .child(
-                                    Button::new("cancel", "Cancel")
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.cancel(window, cx);
-                                        }))
-                                )
+                                .child(Button::new("cancel", "Cancel").on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.cancel(window, cx);
+                                    },
+                                )))
                                 .child(
                                     Button::new("create", "Create")
                                         .style(ButtonStyle::Filled)
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.create_container(window, cx);
-                                        }))
-                                )
-                        )
-                    )
+                                        })),
+                                ),
+                        ),
+                    ),
             )
     }
 }
@@ -117,7 +117,6 @@ impl gpui::Render for NewContainerModal {
 pub struct ManageContainersModal {
     containers: Vec<crate::containers::ContainerConfig>,
     focus_handle: gpui::FocusHandle,
-    selected_index: Option<usize>,
 }
 
 impl EventEmitter<DismissEvent> for ManageContainersModal {}
@@ -134,7 +133,6 @@ impl ManageContainersModal {
         Self {
             containers: crate::containers::list_containers(),
             focus_handle: cx.focus_handle(),
-            selected_index: None,
         }
     }
 
@@ -155,7 +153,11 @@ impl ManageContainersModal {
 }
 
 impl gpui::Render for ManageContainersModal {
-    fn render(&mut self, _window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
         v_flex()
             .id("manage-containers-modal")
             .key_context("ManageContainersModal")
@@ -165,8 +167,8 @@ impl gpui::Render for ManageContainersModal {
                 Modal::new("manage-containers-modal", None::<ScrollHandle>)
                     .header(ModalHeader::new().headline("Manage Containers"))
                     .child(
-                        Section::new()
-                            .children(self.containers.iter().enumerate().map(|(i, container)| {
+                        Section::new().children(self.containers.iter().enumerate().map(
+                            |(i, container)| {
                                 h_flex()
                                     .gap_2()
                                     .p_1()
@@ -179,7 +181,7 @@ impl gpui::Render for ManageContainersModal {
                                                 Label::new(container.description.clone())
                                                     .size(LabelSize::Small)
                                                     .color(Color::Muted),
-                                            )
+                                            ),
                                     )
                                     .child(
                                         Button::new(format!("delete-{}", i), "Delete")
@@ -189,10 +191,11 @@ impl gpui::Render for ManageContainersModal {
                                                 cx.listener(move |this, _, _, cx| {
                                                     this.delete_container(i, cx);
                                                 })
-                                            })
+                                            }),
                                     )
                                     .into_any_element()
-                            }))
+                            },
+                        )),
                     )
                     .footer(
                         ModalFooter::new().end_slot(
@@ -200,9 +203,9 @@ impl gpui::Render for ManageContainersModal {
                                 .style(ButtonStyle::Filled)
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.close(window, cx);
-                                }))
-                        )
-                    )
+                                })),
+                        ),
+                    ),
             )
     }
 }
